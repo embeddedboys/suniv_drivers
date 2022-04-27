@@ -100,8 +100,9 @@ static void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 	writel(0, i2c_data->base + i2c_data->reg_offsets.addr);
 	writel(0, i2c_data->base + i2c_data->reg_offsets.xaddr);
 
-	/* enable irq and bus ... */
-	writel(0, )
+	/* enable bus */
+	writel(SUNIV_I2C_REG_CONTROL_BUS_EN | SUNIV_I2C_REG_CONTROL_M_STP,
+		   i2c_data->base + i2c_data->reg_offsets.cntr);
 }
 
 /* send i2c bus start signal */
