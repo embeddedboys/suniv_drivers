@@ -218,13 +218,8 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, i2c_data);
 	i2c_set_adapdata(&i2c_data->adapter, i2c_data);
 
-	rc = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
-						   SUNIV_CONTLR_NAME "adapter", i2c_data);
-	if(rc){
-		dev_err(&drv_data->adapter.dev,
-			"mv64xxx: Can't register intr handler irq%d: %d\n",
-		return rc;
-	}
+
+
 
 	/* config from dt */
 	rc = suniv_i2c_of_config(i2c_data, &pdev->dev);
@@ -234,19 +229,23 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	/* i2c bus init */
 	suniv_i2c_hw_init(i2c_data);
 
+	rc = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
+						   SUNIV_CONTLR_NAME "adapter", i2c_data);
+
 	/* do last work, add adapter to system */
-	if(ret) {
-		dev_err(&pdev->dev, "Failed to request irq %d\n", i2c_data->irq);
-		return ret;
-	} else if (ret = i2c_add_numbered_adapter(&i2c_data->adapter) != 0) {
-		dev_err(&pdev->dev, "Failed to add adapter\n");
+	if(rc){
+		dev_err(&drv_data->adapter.dev,
+			"suniv: can't register intr handler irq%d: %d\n", i2c_data->irq, rc);
+		return rc;
+	} else if (rc = i2c_add_numbered_adapter(&i2c_data->adapter) != 0) {
+		dev_err(&pdev->dev, "failed to add adapter\n");
 		goto err_free_irq;
 	}
 
 err_free_irq:
 	free_irq(i2c_data->irq, i2c_data);
 
-	return ret;
+	return rc;
 }
 
 static int suniv_i2c_remove(struct platform_device *pdev)
