@@ -27,6 +27,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
+#define SUNIV_I2C_BUS_CLOCK_DEFAULT 100000
+#define SUNIV_I2C_BUS_CLOCK_FAST	400000
+
 #define SUNIV_I2C_REG_CLOCK_M(clkm) ((0xf & clkm) << 3)
 #define SUNIV_I2C_REG_CLOCK_N(clkn) (0x7 & clkn)
 
@@ -45,6 +48,11 @@
 #define SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK   0x18
 #define SUNIV_I2C_BUS_STATUS_ADDR_WR_NOACK 0x20
 #define SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK 0x28
+
+enum {
+	SUNIV_I2C_BUS_DIR_RD = 0x00,
+	SUNIV_I2C_BUS_DIR_WR = 0x01,
+}
 
 
 #define SUNIV_CONTLR_NAME "suniv_i2c"
@@ -85,6 +93,19 @@ struct suniv_i2c_regs suniv_i2c_regs_f1c100s = {
 	.lcr   = 0x20,
 };
 
+static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data, struct device *dev)
+{
+	int rc = 0;
+	struct device_node *np = dev->of_node;
+	__u32 bus_freq;
+
+	rc = of_property_read_u32(np, "clock-frequency", &bus_freq);
+	if(rc)
+		bus_freq = SUNIV_I2C_BUS_CLOCK_DEFAULT;
+	
+	return rc;
+}
+
 static void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 {
 	/*
@@ -108,13 +129,13 @@ static void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 /* send i2c bus start signal */
 static void suniv_i2c_send_start(struct suniv_i2c_data *i2c_data)
 {
-	
 	printk(KERN_WARNING "%s, sending start signal\n", __func__);
 }
 
 /* suniv i2c bus intr handler */
 static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 {
+	printk("%s\n", __func__);
 	return IRQ_HANDLED;
 }
 
@@ -155,13 +176,16 @@ static const struct i2c_algorithm suniv_i2c_algo = {
 static int suniv_i2c_probe(struct platform_device *pdev)
 {
 	struct suniv_i2c_data *i2c_data;
-	int ret;
+	int rc;
+
+	if(!pdev->dev.of_node)
+		return -ENODEV;
 
 	i2c_data = devm_kzalloc(&pdev->dev, sizeof(struct suniv_i2c_data), 
 							GFP_KERNEL);
-	if(!i2c_data){
+
+	if(!i2c_data)
 		return -ENOMEM;
-	}
 
 	/* ioremap the bus register base addr */
 	i2c_data->base = devm_platform_ioremap_resource(pdev, 0);
@@ -183,18 +207,33 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	memcpy(&i2c_data->reg_offsets, &suniv_i2c_regs_f1c100s, sizeof(struct suniv_i2c_regs));
 
 	/* setting i2c adapter structure */
+	strlcpy(i2c_data->adapter.name, SUNIV_CONTLR_NAME " adapter", sizeof(i2c_data->adapter.name));
 	i2c_data->adapter.owner       = THIS_MODULE;
 	i2c_data->adapter.dev.parent  = &pdev->dev;
 	i2c_data->adapter.algo        = &suniv_i2c_algo;
-	i2c_data->adapter.nr          = pdev->id;
+	//i2c_data->adapter.nr          = pdev->id;
+	i2c_data->adapter.nr          = 5;
 	i2c_data->adapter.dev.of_node = pdev->dev.of_node;
 
 	/* set privte data */
 	platform_set_drvdata(pdev, i2c_data);
 	i2c_set_adapdata(&i2c_data->adapter, i2c_data);
 
-	ret = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
+	rc = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
 						   SUNIV_CONTLR_NAME "adapter", i2c_data);
+	if(rc){
+		dev_err(&drv_data->adapter.dev,
+			"mv64xxx: Can't register intr handler irq%d: %d\n",
+		return rc;
+	}
+
+	/* config from dt */
+	rc = suniv_i2c_of_config(i2c_data, &pdev->dev);
+	if(rc)
+		return rc;
+
+	/* i2c bus init */
+	suniv_i2c_hw_init(i2c_data);
 
 	/* do last work, add adapter to system */
 	if(ret) {
