@@ -234,7 +234,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 
 	/* do last work, add adapter to system */
 	if(rc){
-		dev_err(&drv_data->adapter.dev,
+		dev_err(&i2c_data->adapter.dev,
 			"suniv: can't register intr handler irq%d: %d\n", i2c_data->irq, rc);
 		return rc;
 	} else if (rc = i2c_add_numbered_adapter(&i2c_data->adapter) != 0) {
