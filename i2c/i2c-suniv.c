@@ -52,8 +52,7 @@
 enum {
 	SUNIV_I2C_BUS_DIR_RD = 0x00,
 	SUNIV_I2C_BUS_DIR_WR = 0x01,
-}
-
+};
 
 #define SUNIV_CONTLR_NAME "suniv_i2c"
 
