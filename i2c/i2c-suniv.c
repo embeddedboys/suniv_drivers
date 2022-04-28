@@ -345,11 +345,12 @@ static int suniv_i2c_remove(struct platform_device *pdev)
 	struct suniv_i2c_data *i2c_data = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(i2c_data->adapter);
-	free_irq(i2c_data->irq);
+	free_irq(i2c_data->irq, i2c_data);
 	
 	reset_control_assert(i2c_data->rstc);
 	clk_disable_unprepare(i2c_data->hclk);
 	clk_disable_unprepare(i2c_data->mclk);
+	
 	return 0;
 }
 
