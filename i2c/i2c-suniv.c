@@ -79,9 +79,11 @@ struct suniv_i2c_data {
 	struct clk              *hclk;
 	struct clk              *mclk;
 
-	struct completion complete;
+	struct completion      complete;
 	wait_queue_head_t      wait_queue;
 	spinlock_t             lock;
+
+	u32					   sleep;
 
 	struct reset_control	*rstc;
 };
@@ -153,7 +155,7 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 	u32 status_cntr = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr);
 	u32 status_stat;
 	
-	printk("%s\n", __func__);
+	printk("%s, status_cntr: 0x%x\n", __func__, status_cntr);
 
 	if(status_cntr & SUNIV_I2C_REG_CONTROL_INT_FLAG) {
 		status_stat = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.stat);
@@ -161,6 +163,7 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 		case SUNIV_I2C_BUS_STATUS_ERROR:
 			break;
 		case SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK:
+			i2c_data->sleep = 0;
 			break;
 		default:
 			break;
@@ -186,6 +189,7 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	
 	/* do simple i2c msg loop */
 	for(i = 0; i<num; i++) {
+		i2c_data->sleep = 1;
 		/* set slave addr */
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.addr, SUNIV_I2C_ADDR(msgs[i].addr));
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, 
@@ -203,6 +207,9 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
 					SUNIV_I2C_REG_CONTROL_M_STP);
+
+		wait_event_timeout(&i2c_data->wait_queue, !i2c_data->sleep, 
+							i2c_data->adapter.timeout);
 	}
 	return 0;
 }
@@ -240,6 +247,8 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	if(IS_ERR(i2c_data->base)){
 		return PTR_ERR(i2c_data->base);
 	}
+
+	dev_dbg(&pdev->dev, "i2c reg base: %p\n", i2c_data->base);
 
 	/* get irq number from device */
 	i2c_data->irq = platform_get_irq(pdev, 0);
