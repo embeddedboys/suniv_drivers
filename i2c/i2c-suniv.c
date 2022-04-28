@@ -196,9 +196,9 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 		//printk(KERN_WARNING "prepared send to %d\n", msgs[i].addr);
 
 		if(msgs[i].flags & I2C_M_RD){
-			i2c_data->msgs->buf = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.data);
+
 		}else {	/* write to slave */
-			suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, i2c_data->msgs->buf);
+			suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, *i2c_data->msgs->buf);
 		}
 
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
