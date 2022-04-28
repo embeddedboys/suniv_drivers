@@ -155,7 +155,7 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 	
 	printk("%s\n", __func__);
 
-	if(status & SUNIV_I2C_REG_CONTROL_INT_FLAG) {
+	if(status_cntr & SUNIV_I2C_REG_CONTROL_INT_FLAG) {
 		status_stat = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.stat);
 		switch(status_stat) {
 		case SUNIV_I2C_BUS_STATUS_ERROR:
