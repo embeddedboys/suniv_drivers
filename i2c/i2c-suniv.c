@@ -75,9 +75,12 @@ struct suniv_i2c_data {
 	struct i2c_msg		   *msgs;
 	int			           num_msgs;
 	struct i2c_adapter	   adapter;
+	struct clk              *clk;
 
 	wait_queue_head_t      wait_queue;
 	spinlock_t             lock;
+
+	struct reset_control	*rstc;
 };
 
 struct suniv_i2c_regs suniv_i2c_regs_f1c100s = {
@@ -192,9 +195,19 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 		return PTR_ERR(i2c_data->base);
 	}
 
+
 	/* init locks */
 	init_waitqueue_head(&i2c_data->wait_queue);
 	spin_lock_init(&i2c_data->lock);
+
+	/* get clock */
+	i2c_data->clk = devm_clk_get(&pdev->dev, NULL);
+	if(IS_ERR(i2c_data->clk)){
+		if (PTR_ERR(i2c_data->clk) == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+		i2c_data->clk = NULL;
+	}
+
 
 	/* get irq number from device */
 	i2c_data->irq = platform_get_irq(pdev, 0);
@@ -218,17 +231,19 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, i2c_data);
 	i2c_set_adapdata(&i2c_data->adapter, i2c_data);
 
+	/* clks and reset */
+	clk_prepare_enable(i2c_data->clk);
+	reset_control_reset(i2c_data->rstc);
 
+	/* i2c bus hardware init */
+	suniv_i2c_hw_init(i2c_data);
 
-
-	/* config from dt */
+	/* configure properties from dt */
 	rc = suniv_i2c_of_config(i2c_data, &pdev->dev);
 	if(rc)
 		return rc;
 
-	/* i2c bus init */
-	suniv_i2c_hw_init(i2c_data);
-
+	/* request irq */
 	rc = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
 						   SUNIV_CONTLR_NAME "adapter", i2c_data);
 
