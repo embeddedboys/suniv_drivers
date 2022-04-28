@@ -110,11 +110,6 @@ static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data, struct device *d
 
 static void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 {
-	/*
-	 * we don't need to reset bus here, because
-	 * the reset system should do this work
-	 */
-
 	/* set the bus clock, temporarily set to 100Kbit/s */
 	writel(SUNIV_I2C_REG_CLOCK_N(2) | SUNIV_I2C_REG_CLOCK_M(11),
 		   i2c_data->base + i2c_data->reg_offsets.ccr);
@@ -185,7 +180,6 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 
 	i2c_data = devm_kzalloc(&pdev->dev, sizeof(struct suniv_i2c_data), 
 							GFP_KERNEL);
-
 	if(!i2c_data)
 		return -ENOMEM;
 
@@ -195,6 +189,12 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 		return PTR_ERR(i2c_data->base);
 	}
 
+	/* get irq number from device */
+	i2c_data->irq = platform_get_irq(pdev, 0);
+	if(i2c_data->irq < 0){
+		printk("%s, can't get irq\n", __func__);
+		return i2c_data->irq;
+	}
 
 	/* init locks */
 	init_waitqueue_head(&i2c_data->wait_queue);
@@ -202,31 +202,25 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 
 	/* get clock */
 	i2c_data->clk = devm_clk_get(&pdev->dev, NULL);
-	if(IS_ERR(i2c_data->clk)){
-		if (PTR_ERR(i2c_data->clk) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-		i2c_data->clk = NULL;
+	if (IS_ERR(i2c_data->clk)) {
+		dev_err(&pdev->dev, "No clock specified\n");
+		return PTR_ERR(i2c_data->clk);
 	}
 
-
-	/* get irq number from device */
-	i2c_data->irq = platform_get_irq(pdev, 0);
-	if(i2c_data->irq < 0){
-		dev_err(&pdev->dev, "%s, can't get irq\n", __func__);
-		return -EINVAL;
-	}
 
 	/* copy regs offset to self data */
 	memcpy(&i2c_data->reg_offsets, &suniv_i2c_regs_f1c100s, sizeof(struct suniv_i2c_regs));
 
 	/* setting i2c adapter structure */
-	strlcpy(i2c_data->adapter.name, SUNIV_CONTLR_NAME " adapter", sizeof(i2c_data->adapter.name));
 	i2c_data->adapter.owner       = THIS_MODULE;
-	i2c_data->adapter.dev.parent  = &pdev->dev;
 	i2c_data->adapter.algo        = &suniv_i2c_algo;
-	//i2c_data->adapter.nr          = pdev->id;
-	i2c_data->adapter.nr          = 5;
+	i2c_data->adapter.algo_data   = NULL;
+	i2c_data->adapter.dev.parent  = &pdev->dev;
+	i2c_data->adapter.retries     = 3;
+	i2c_data->adapter.timeout     = HZ;
+	i2c_data->adapter.nr          = pdev->id;
 	i2c_data->adapter.dev.of_node = pdev->dev.of_node;
+	strlcpy(i2c_data->adapter.name, SUNIV_CONTLR_NAME " adapter", sizeof(i2c_data->adapter.name));
 
 	/* set privte data */
 	platform_set_drvdata(pdev, i2c_data);
