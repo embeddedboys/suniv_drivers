@@ -212,6 +212,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	/* get irq number from device */
 	i2c_data->irq = platform_get_irq(pdev, 0);
 	if(i2c_data->irq < 0){
+		dev_err(&pdev->dev, "%s, can't get irq\n", __func__);
 		return -EINVAL;
 	}
 
