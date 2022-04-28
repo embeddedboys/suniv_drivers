@@ -236,21 +236,22 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	suniv_i2c_hw_init(i2c_data);
 
 	/* configure properties from dt */
+	/*
 	rc = suniv_i2c_of_config(i2c_data, &pdev->dev);
 	if(rc)
 		return rc;
+	*/
 
 	/* request irq */
 	rc = devm_request_irq(&pdev->dev, i2c_data->irq, suniv_i2c_isr, 0, 
 						   SUNIV_CONTLR_NAME "adapter", i2c_data);
-
-	/* do last work, add adapter to system */
 	if(rc){
 		dev_err(&i2c_data->adapter.dev,
 			"suniv: can't register intr handler irq%d: %d\n", i2c_data->irq, rc);
 		return rc;
 	}
-	
+
+	/* do last work, add adapter to system */	
 	rc = i2c_add_numbered_adapter(&i2c_data->adapter);
 	if(rc !=0) {
 		dev_err(&pdev->dev, "failed to add adapter\n");
