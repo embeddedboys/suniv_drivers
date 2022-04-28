@@ -175,6 +175,8 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	struct suniv_i2c_data *i2c_data;
 	int rc;
 
+	printk("%s\n", __func__);
+
 	if(!pdev->dev.of_node)
 		return -ENODEV;
 
