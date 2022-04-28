@@ -162,11 +162,14 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 			break;
 		case SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK:
 			complete(&i2c_data->complete);
+			break;
+		default:
+			break;
 		}
 		return IRQ_HANDLED;
 	}
 	
-	return IRQ_HANDLED;
+	return IRQ_NONE;
 }
 
 /*
@@ -182,7 +185,7 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	/* do simple i2c msg loop */
 	for(i = 0; i<num; i++) {
 		/* set slave addr */
-		suniv_i2c_write(i2c_data, i2c_data.reg_offsets.addr, SUNIV_I2C_ADDR(msgs[i].addr));
+		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.addr, SUNIV_I2C_ADDR(msgs[i].addr));
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, 
 					SUNIV_I2C_REG_CONTROL_A_ACK | SUNIV_I2C_REG_CONTROL_INT_EN);
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
@@ -194,9 +197,9 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 		if(msgs[i].flags & I2C_M_RD){
 			
 		}else {	/* write to slave */
-			suniv_i2c_write(i2c_data, i2c_data.reg_offsets.data, *msgs[i].buf);
+			suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, *msgs[i].buf);
 		}
-
+		wait_for_completion(&i2c_data->complete);
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
 					SUNIV_I2C_REG_CONTROL_M_STP);
 	}
