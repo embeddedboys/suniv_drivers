@@ -30,6 +30,7 @@
 #define SUNIV_I2C_BUS_CLOCK_DEFAULT 100000
 #define SUNIV_I2C_BUS_CLOCK_FAST	400000
 
+#define SUNIV_I2C_ADDR(addr) ((0xf & addr) << 1)
 #define SUNIV_I2C_REG_CLOCK_M(clkm) ((0xf & clkm) << 3)
 #define SUNIV_I2C_REG_CLOCK_N(clkn) (0x7 & clkn)
 
@@ -75,8 +76,10 @@ struct suniv_i2c_data {
 	struct i2c_msg		   *msgs;
 	int			           num_msgs;
 	struct i2c_adapter	   adapter;
-	struct clk              *clk;
+	struct clk              *hclk;
+	struct clk              *mclk;
 
+	struct completion complete;
 	wait_queue_head_t      wait_queue;
 	spinlock_t             lock;
 
@@ -95,11 +98,21 @@ struct suniv_i2c_regs suniv_i2c_regs_f1c100s = {
 	.lcr   = 0x20,
 };
 
+static inline u32 suniv_i2c_read(struct suniv_i2c_data *i2c_data, u32 reg)
+{
+	return readl(i2c_data->base + reg);
+}
+
+static inline void suniv_i2c_write(struct suniv_i2c_data *i2c_data, u32 reg, u32 val)
+{
+	writel(val, i2c_data->base + reg);
+}
+
 static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data, struct device *dev)
 {
 	int rc = 0;
 	struct device_node *np = dev->of_node;
-	__u32 bus_freq;
+	u32 bus_freq;
 
 	rc = of_property_read_u32(np, "clock-frequency", &bus_freq);
 	if(rc)
@@ -108,31 +121,51 @@ static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data, struct device *d
 	return rc;
 }
 
-static void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
+static inline void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 {
 	/* set the bus clock, temporarily set to 100Kbit/s */
-	writel(SUNIV_I2C_REG_CLOCK_N(2) | SUNIV_I2C_REG_CLOCK_M(11),
-		   i2c_data->base + i2c_data->reg_offsets.ccr);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.ccr, 
+					SUNIV_I2C_REG_CLOCK_N(2) | SUNIV_I2C_REG_CLOCK_M(11));
 
 	/* clear addr,xaddr registers */
-	writel(0, i2c_data->base + i2c_data->reg_offsets.addr);
-	writel(0, i2c_data->base + i2c_data->reg_offsets.xaddr);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.addr, 0);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.xaddr, 0);
 
 	/* enable bus */
-	writel(SUNIV_I2C_REG_CONTROL_BUS_EN | SUNIV_I2C_REG_CONTROL_M_STP,
-		   i2c_data->base + i2c_data->reg_offsets.cntr);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, 
+					SUNIV_I2C_REG_CONTROL_BUS_EN | SUNIV_I2C_REG_CONTROL_M_STP);
 }
 
 /* send i2c bus start signal */
 static void suniv_i2c_send_start(struct suniv_i2c_data *i2c_data)
 {
 	printk(KERN_WARNING "%s, sending start signal\n", __func__);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, 
+					SUNIV_I2C_REG_CONTROL_A_ACK | SUNIV_I2C_REG_CONTROL_INT_EN);
+	suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
+					SUNIV_I2C_REG_CONTROL_M_STA);
 }
 
 /* suniv i2c bus intr handler */
 static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 {
+	struct suniv_i2c_data *i2c_data = dev_id;
+	u32 status_cntr = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr);
+	u32 status_stat;
+	
 	printk("%s\n", __func__);
+
+	if(status & SUNIV_I2C_REG_CONTROL_INT_FLAG) {
+		status_stat = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.stat);
+		switch(status_stat) {
+		case SUNIV_I2C_BUS_STATUS_ERROR:
+			break;
+		case SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK:
+			complete(&i2c_data->complete);
+		}
+		return IRQ_HANDLED;
+	}
+	
 	return IRQ_HANDLED;
 }
 
@@ -143,16 +176,29 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 			   				  int num)
 {
-	int index;
+	int i, rc;
 	struct suniv_i2c_data *i2c_data = i2c_get_adapdata(adap);
 	
-	/* test i2c start signal */
-	suniv_i2c_send_start(i2c_data);
-
-
 	/* do simple i2c msg loop */
-	for(index = 0; index<msgs->len;index++) {
-		printk(KERN_WARNING "prepared send to %d\n", msgs[index].addr);
+	for(i = 0; i<num; i++) {
+		/* set slave addr */
+		suniv_i2c_write(i2c_data, i2c_data.reg_offsets.addr, SUNIV_I2C_ADDR(msgs[i].addr));
+		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, 
+					SUNIV_I2C_REG_CONTROL_A_ACK | SUNIV_I2C_REG_CONTROL_INT_EN);
+		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
+					SUNIV_I2C_REG_CONTROL_M_STA);
+		
+		//printk(KERN_WARNING "prepared send to %d\n", msgs[i].addr);
+
+		
+		if(msgs[i].flags & I2C_M_RD){
+			
+		}else {	/* write to slave */
+			suniv_i2c_write(i2c_data, i2c_data.reg_offsets.data, *msgs[i].buf);
+		}
+
+		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
+					SUNIV_I2C_REG_CONTROL_M_STP);
 	}
 	return 0;
 }
@@ -202,13 +248,26 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	init_waitqueue_head(&i2c_data->wait_queue);
 	spin_lock_init(&i2c_data->lock);
 
-	/* get clock */
-	i2c_data->clk = devm_clk_get(&pdev->dev, NULL);
-	if (IS_ERR(i2c_data->clk)) {
-		dev_err(&pdev->dev, "No clock specified\n");
-		return PTR_ERR(i2c_data->clk);
+	init_completion(&i2c_data->complete);
+
+	/* get clocks */
+	i2c_data->hclk = devm_clk_get(&pdev->dev, "ahb");
+	if (IS_ERR(i2c_data->hclk)) {
+		dev_err(&pdev->dev, "Unable to acquire AHB clock\n");
+		return PTR_ERR(i2c_data->hclk);
 	}
 
+	i2c_data->mclk = devm_clk_get(&pdev->dev, "mod");
+	if (IS_ERR(i2c_data->mclk)) {
+		dev_err(&pdev->dev, "Unable to acquire module clock\n");
+		return PTR_ERR(i2c_data->mclk);
+	}
+
+	i2c_data->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if(IS_ERR(i2c_data->rstc)) {
+		dev_err(&pdev->dev, "can't get reset controller\n");
+		return PTR_ERR(i2c_data->rstc);
+	}
 
 	/* copy regs offset to self data */
 	memcpy(&i2c_data->reg_offsets, &suniv_i2c_regs_f1c100s, sizeof(struct suniv_i2c_regs));
@@ -229,8 +288,22 @@ static int suniv_i2c_probe(struct platform_device *pdev)
 	i2c_set_adapdata(&i2c_data->adapter, i2c_data);
 
 	/* clks and reset */
-	clk_prepare_enable(i2c_data->clk);
-	reset_control_reset(i2c_data->rstc);
+	rc = clk_prepare_enable(i2c_data->hclk);
+	if(rc) {
+		dev_err(&pdev->dev, "can't enable AHB clock\n");
+		return rc;
+	}
+	rc = clk_prepare_enable(i2c_data->mclk);
+	if(rc) {
+		dev_err(&pdev->dev, "can't enable module clock\n");
+		return rc;
+	}
+	
+	rc = reset_control_deassert(i2c_data->rstc);
+	if(rc) {
+		dev_err(&pdev->dev, "can't deassert the device from device");
+		return rc;
+	};
 
 	/* i2c bus hardware init */
 	suniv_i2c_hw_init(i2c_data);
