@@ -179,7 +179,7 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 			   				  int num)
 {
-	int i, rc;
+	int i;
 	struct suniv_i2c_data *i2c_data = i2c_get_adapdata(adap);
 	
 	/* do simple i2c msg loop */
@@ -342,6 +342,14 @@ err_free_irq:
 
 static int suniv_i2c_remove(struct platform_device *pdev)
 {
+	struct suniv_i2c_data *i2c_data = platform_get_drvdata(pdev);
+
+	i2c_del_adapter(i2c_data->adapter);
+	free_irq(i2c_data->irq);
+	
+	reset_control_assert(i2c_data->rstc);
+	clk_disable_unprepare(i2c_data->hclk);
+	clk_disable_unprepare(i2c_data->mclk);
 	return 0;
 }
 
