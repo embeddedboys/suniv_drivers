@@ -161,7 +161,6 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
 		case SUNIV_I2C_BUS_STATUS_ERROR:
 			break;
 		case SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK:
-			complete(&i2c_data->complete);
 			break;
 		default:
 			break;
@@ -181,6 +180,9 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 {
 	int i;
 	struct suniv_i2c_data *i2c_data = i2c_get_adapdata(adap);
+	i2c_data->msgs = msgs;
+	i2c_data->num_msgs = num;
+
 	
 	/* do simple i2c msg loop */
 	for(i = 0; i<num; i++) {
@@ -193,13 +195,12 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 		
 		//printk(KERN_WARNING "prepared send to %d\n", msgs[i].addr);
 
-		
 		if(msgs[i].flags & I2C_M_RD){
-			
+			msgs[i].buf = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.data);
 		}else {	/* write to slave */
-			suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, *msgs[i].buf);
+			suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, msgs[i].buf);
 		}
-		wait_for_completion(&i2c_data->complete);
+
 		suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
 					SUNIV_I2C_REG_CONTROL_M_STP);
 	}
