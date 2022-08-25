@@ -230,11 +230,11 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
                         
                         if (i2c_data->byte_left == 0) {
                                 suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
-                                                i2c_data->cntr_bits | 
-												SUNIV_I2C_REG_CONTROL_M_STP);
+                                                i2c_data->cntr_bits |
+                                                SUNIV_I2C_REG_CONTROL_M_STP);
                         } else {
-                                suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, 
-												*(i2c_data->msgs->buf));
+                                suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data,
+                                                *(i2c_data->msgs->buf));
                                 i2c_data->byte_left--;
                         }
                         
