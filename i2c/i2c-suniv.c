@@ -31,7 +31,7 @@
 #define SUNIV_I2C_BUS_CLOCK_DEFAULT                     100000
 #define SUNIV_I2C_BUS_CLOCK_FAST                        400000
 
-#define SUNIV_I2C_ADDR(addr) ((0xf & addr) << 1)
+#define SUNIV_I2C_ADDR(addr) ((0xff & addr) << 1)
 #define SUNIV_I2C_REG_CLOCK_M(clkm) ((0xf & clkm) << 3)
 #define SUNIV_I2C_REG_CLOCK_N(clkn) (0x7 & clkn)
 
@@ -44,17 +44,19 @@
 #define SUNIV_I2C_REG_CONTROL_A_ACK                     BIT(2)
 
 /* suniv i2c status register vals */
-#define SUNIV_I2C_BUS_STATUS_ERROR              0x00
-#define SUNIV_I2C_BUS_STATUS_START              0x08
-#define SUNIV_I2C_BUS_STATUS_REPEAT_START       0x10
-#define SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK        0x18
-#define SUNIV_I2C_BUS_STATUS_ADDR_WR_NOACK      0x20
-#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK    0x28
-#define SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK    0xd0
+#define SUNIV_I2C_BUS_STATUS_ERROR                      0x00
+#define SUNIV_I2C_BUS_STATUS_START                      0x08
+#define SUNIV_I2C_BUS_STATUS_REPEAT_START               0x10
+#define SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK                0x18
+#define SUNIV_I2C_BUS_STATUS_ADDR_WR_NOACK              0x20
+#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK            0x28
+#define SUNIV_I2C_BUS_STATUS_DATA_NOACK                 0x30
+#define SUNIV_I2C_BUS_STATUS_ADDR_RD_NOACK              0x48
+#define SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK            0xd0
 
 enum {
-        SUNIV_I2C_BUS_DIR_RD = 0x00,
-        SUNIV_I2C_BUS_DIR_WR = 0x01,
+        SUNIV_I2C_BUS_DIR_WR = 0x00,
+        SUNIV_I2C_BUS_DIR_RD = 0x01,
 };
 
 #define SUNIV_CONTLR_NAME "suniv_i2c"
@@ -72,7 +74,7 @@ struct suniv_i2c_regs {
 };
 
 struct suniv_i2c_data {
-        void __iomem               *base;
+        void __iomem            *base;
         int                     irq;
         
         u32                     dir;
@@ -81,11 +83,11 @@ struct suniv_i2c_data {
         u32                     xaddr;
         u32                     byte_left;
         struct suniv_i2c_regs   reg_offsets;
-        struct i2c_msg         *msgs;
+        struct i2c_msg          *msgs;
         int                     num_msgs;
         struct i2c_adapter      adapter;
-        struct clk             *hclk;
-        struct clk             *mclk;
+        struct clk              *hclk;
+        struct clk              *mclk;
         
         struct completion       complete;
         wait_queue_head_t       wait_queue;
@@ -93,7 +95,7 @@ struct suniv_i2c_data {
         
         u32                     sleep;
         
-        struct reset_control   *rstc;
+        struct reset_control    *rstc;
 };
 
 struct suniv_i2c_regs suniv_i2c_regs_f1c100s = {
@@ -119,6 +121,11 @@ static inline void suniv_i2c_write(struct suniv_i2c_data *i2c_data, u32 reg,
         writel(val, i2c_data->base + reg);
 }
 
+static void suniv_i2c_dump_register(struct suniv_i2c_data *i2c_data)
+{
+
+}
+
 static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data,
                                struct device *dev)
 {
@@ -136,6 +143,7 @@ static int suniv_i2c_of_config(struct suniv_i2c_data *i2c_data,
 
 static inline void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 {
+        int i2c_speed;
         /*
          * we don't need to reset bus here, because
          * the reset system should do this work
@@ -143,6 +151,8 @@ static inline void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
         suniv_i2c_write(i2c_data, i2c_data->reg_offsets.srst, 1);
         
         /* set the bus clock, temporarily set to 100Kbit/s */
+        i2c_speed = SUNIV_I2C_REG_CLOCK_N(2) | SUNIV_I2C_REG_CLOCK_M(11);
+        printk("%s, i2c speed: 0x%x", __func__, i2c_speed);
         suniv_i2c_write(i2c_data, i2c_data->reg_offsets.ccr,
                         SUNIV_I2C_REG_CLOCK_N(2) | SUNIV_I2C_REG_CLOCK_M(11));
                         
@@ -161,24 +171,21 @@ static inline void suniv_i2c_hw_init(struct suniv_i2c_data *i2c_data)
 static void suniv_i2c_send_start(struct suniv_i2c_data *i2c_data)
 {
         i2c_data->byte_left = i2c_data->msgs->len;
-        i2c_data->dir = SUNIV_I2C_BUS_DIR_WR;
         
         printk("%s, addr:0x%x\n", __func__, i2c_data->msgs->addr);
         printk("%s, byte left:%d\n", __func__, i2c_data->byte_left);
         
-        i2c_data->cntr_bits = SUNIV_I2C_REG_CONTROL_BUS_EN | SUNIV_I2C_REG_CONTROL_A_ACK
+        i2c_data->cntr_bits = SUNIV_I2C_REG_CONTROL_BUS_EN
+                              | SUNIV_I2C_REG_CONTROL_A_ACK
                               | SUNIV_I2C_REG_CONTROL_INT_EN;
         printk("%s, i2c_data->cntr_bits : 0x%x\n", __func__, i2c_data->cntr_bits);
         
-        if (i2c_data->msgs->flags & I2C_M_RD)
-                i2c_data->dir = SUNIV_I2C_BUS_DIR_RD;
-                
         if (i2c_data->msgs->flags & I2C_M_TEN) {
                 i2c_data->addr = SUNIV_I2C_ADDR(i2c_data->msgs->addr) | i2c_data->dir;
                 i2c_data->xaddr = (u32)i2c_data->msgs->addr & 0xff;
         } else {
                 i2c_data->addr = SUNIV_I2C_ADDR(i2c_data->msgs->addr) | i2c_data->dir;
-                i2c_data->xaddr = (u32)i2c_data->msgs->addr & 0xff;
+                i2c_data->xaddr = 0;
         }
         
         
@@ -193,17 +200,21 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
         struct suniv_i2c_data *i2c_data = dev_id;
         u32 status_stat;
         u32 status_cntr;
+        u32 status_lcr;
         irqreturn_t rc = IRQ_NONE;
         
         printk("%s\n", __func__);
         
         spin_lock(&i2c_data->lock);
         
-        while (status_cntr = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr) &
-                             SUNIV_I2C_REG_CONTROL_INT_FLAG) {
+        while (suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr) &
+               SUNIV_I2C_REG_CONTROL_INT_FLAG) {
                 status_stat = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.stat);
+                status_cntr = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr);
+                status_lcr  = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.lcr);
                 printk("%s, status_cntr: 0x%x\n", __func__, status_cntr);
-                
+                printk("%s, status_stat: 0x%x\n", __func__, status_stat);
+                printk("%s, status_lcr: 0x%x\n", __func__, status_lcr);
                 switch (status_stat) {
                 
                 /* Error interrupt */
@@ -218,33 +229,60 @@ static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
                 case SUNIV_I2C_BUS_STATUS_REPEAT_START: /* 0x10 */
                         printk("SUNIV_I2C_BUS_STATUS_REPEAT_START\n");
                         suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data, i2c_data->addr);
-                        printk("%s, i2c_data->cntr_bits : 0x%x\n", __func__, i2c_data->cntr_bits);
                         suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, i2c_data->cntr_bits);
                         break;
                         
+                /* Write to slave */
                 case SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK: /* 0x18 */
-                /* TODO: check if it's a 10 bit addr */
-                case SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK: /* 0xd0 */
-                case SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK: /* 0x28 */
                         printk("SUNIV_I2C_BUS_STATUS_ADDR_WR_ACK\n");
-                        
+                        /* TODO: check if it's a 10 bit addr */
+                        fallthrough;
+                case SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK: /* 0xd0 */
+                        printk("SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK\n");
+                        /* TODO: check if it's a 10 bit addr */
+                        fallthrough;
+                case SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK: /* 0x28 */
+                        printk("SUNIV_I2C_BUS_STATUS_MASTER_DATA_ACK\n");
                         if (i2c_data->byte_left == 0) {
+                                printk("%s, sending a stop\n", __func__);
+                                i2c_data->cntr_bits &= ~SUNIV_I2C_REG_CONTROL_INT_EN;
                                 suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
                                                 i2c_data->cntr_bits |
                                                 SUNIV_I2C_REG_CONTROL_M_STP);
                         } else {
+                                printk("%s, writing %d to slave\n", __func__, *(i2c_data->msgs->buf));
                                 suniv_i2c_write(i2c_data, i2c_data->reg_offsets.data,
                                                 *(i2c_data->msgs->buf));
+                                suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, i2c_data->cntr_bits);
                                 i2c_data->byte_left--;
                         }
                         
                         i2c_data->sleep = 0;
                         break;
                         
+                /* TODO: Read from slave */
+                
+                
+                /* Non device responsed */
+                case SUNIV_I2C_BUS_STATUS_ADDR_WR_NOACK:    /* 0x20 */
+                        printk("%s, SUNIV_I2C_BUS_STATUS_ADDR_WR_NOACK", __func__);
+                        fallthrough;
+                case SUNIV_I2C_BUS_STATUS_DATA_NOACK:       /* 0x30 */
+                        printk("%s, SUNIV_I2C_BUS_STATUS_DATA_NOACK", __func__);
+                        fallthrough;
+                case SUNIV_I2C_BUS_STATUS_ADDR_RD_NOACK:    /* 0x48 */
+                        printk("%s, SUNIV_I2C_BUS_STATUS_ADDR_RD_NOACK", __func__);
+                        i2c_data->cntr_bits &= ~SUNIV_I2C_REG_CONTROL_INT_EN;
+                        suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr, i2c_data->cntr_bits);
+                        suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
+                                        i2c_data->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STP);
+                        i2c_data->sleep = 0;
+                        break;
+                        
                 default:
                         suniv_i2c_write(i2c_data, i2c_data->reg_offsets.cntr,
                                         i2c_data->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STP);
-                        printk("%s, status_cntr: 0x%x\n", __func__, status_cntr);
+                        printk("%s, in default: status_cntr: 0x%x\n", __func__, status_cntr);
                         suniv_i2c_hw_init(i2c_data);
                         i2c_recover_bus(&i2c_data->adapter);
                         break;
@@ -287,12 +325,14 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
             i2c_data->cntr_bits = suniv_i2c_read(i2c_data, i2c_data->reg_offsets.cntr);
         */
         printk("%s, i2c_data->cntr_bits : 0x%x\n", __func__, i2c_data->cntr_bits);
-        
+        suniv_i2c_hw_init(i2c_data);
         /* do single i2c msg */
         if (num == 1 && !(msgs[0].flags & I2C_M_RD)) {
                 printk(KERN_WARNING "prepared send to 0x%x\n", msgs[0].addr);
+                i2c_data->dir = SUNIV_I2C_BUS_DIR_WR;
         } else if (num == 1 && msgs[0].flags & I2C_M_RD)  {
                 printk(KERN_WARNING "prepared read from 0x%x\n", msgs[0].addr);
+                i2c_data->dir = SUNIV_I2C_BUS_DIR_RD;
         }
         
         suniv_i2c_send_start(i2c_data);
@@ -455,8 +495,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
                 return rc;
         };
         
-        printk("%s:reset the i2c adapter\n", __func__);
-        
+        printk("%s: reset the i2c controller\n", __func__);
         reset_control_reset(i2c_data->rstc);
         
         rc = suniv_i2c_of_config(i2c_data, &pdev->dev);
