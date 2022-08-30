@@ -396,9 +396,8 @@ static int suniv_i2c_do_msgs(struct suniv_i2c_data *i2c_data)
         long            time_left;
         struct i2c_msg  *msgs = i2c_data->msgs;
         
-        i2c_data->byte_pos = 0;
-        
         for (i = 0; i < num; i++) {
+                i2c_data->byte_pos = 0;
                 /* send start signal and waiting for interrupt occured */
                 printk("%s, sending msg : %d", __func__, i);
                 suniv_i2c_send_start(i2c_data, &msgs[i]);
