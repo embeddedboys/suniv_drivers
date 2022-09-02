@@ -1,0 +1,3 @@
+/home/developer/sambashare/suniv_drivers/i2c/ssd1306/build/CMakeFiles/demo.dir
+/home/developer/sambashare/suniv_drivers/i2c/ssd1306/build/CMakeFiles/edit_cache.dir
+/home/developer/sambashare/suniv_drivers/i2c/ssd1306/build/CMakeFiles/rebuild_cache.dir

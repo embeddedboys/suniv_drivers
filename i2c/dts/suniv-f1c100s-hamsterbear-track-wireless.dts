@@ -108,7 +108,7 @@
 		#size-cells = <0>;
 	};
 */
-
+/*
 	i2c0: i2c-gpio_hamsterbear0 {
 		compatible = "i2c-gpio";
 		#address-cells = <1>;
@@ -118,6 +118,7 @@
 		scl-gpios = <&pio 4 11 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
 		sda-gpios = <&pio 4 12 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
 	};
+*/
 /*
 	i2c1: i2c-gpio_hamsterbear1 {
 		compatible = "i2c-gpio";
@@ -162,7 +163,7 @@
 	pinctrl-0 = <&uart2_pd_pins>;
 	status = "okay";
 };
-/*
+
 &i2c0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c0_pe_pins>;
@@ -178,10 +179,9 @@
 		trickle-resistor-ohms = <250>;
 	};
 };
-*/
 
 &i2c1 {
-	pinctl-names = "default";
+	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_pd_pins>;
 	status = "okay";
 	i2c-max-frequency = <400000>;
