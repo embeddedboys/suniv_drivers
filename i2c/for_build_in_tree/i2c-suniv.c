@@ -605,7 +605,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
         i2c_dev->adapter.nr          = pdev->id;
         i2c_dev->adapter.dev.of_node = pdev->dev.of_node;
         snprintf(i2c_dev->adapter.name, sizeof(i2c_dev->adapter.name),
-				SUNIV_CONTLR_NAME " adapter %d", i2c_dev->adapter.nr);
+				SUNIV_CONTLR_NAME " adapter%d", i2c_dev->adapter.nr);
                 
         /* set privte data */
         printk("%s: set privte data\n", __func__);
