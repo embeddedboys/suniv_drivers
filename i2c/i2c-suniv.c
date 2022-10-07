@@ -133,7 +133,7 @@ static inline void suniv_i2c_write(struct suniv_i2c *i2c_dev, u32 reg, u32 val)
 
 static inline void suniv_i2c_soft_reset(struct suniv_i2c *i2c_dev)
 {
-		writel(SUNIV_I2C_REG_SRST_SOFT_RESET, i2c_dev->base + i2c_dev->reg_offsets.srst);
+	writel(SUNIV_I2C_REG_SRST_SOFT_RESET, i2c_dev->base + i2c_dev->reg_offsets.srst);
 }
                                    	
 
@@ -184,7 +184,7 @@ static int suniv_i2c_create_sysfs(struct device  *dev)
         return rc;
 }
 
-static int suniv_i2c_of_config(struct suniv_i2c *i2c_dev,
+static int __maybe_unused suniv_i2c_of_config(struct suniv_i2c *i2c_dev,
                                struct device *dev)
 {
         int rc = 0;
@@ -202,9 +202,8 @@ static int suniv_i2c_of_config(struct suniv_i2c *i2c_dev,
 static inline void suniv_i2c_hw_init(struct suniv_i2c *i2c_dev)
 {
         //int i2c_speed;
-        
-        //suniv_i2c_soft_reset(i2c_dev);
-        suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.srst, 0x1);
+        suniv_i2c_soft_reset(i2c_dev);
+        //suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.srst, 0x1);
         
         /* set the bus clock, temporarily set to 100Kbit/s */
         /*
@@ -220,9 +219,9 @@ static inline void suniv_i2c_hw_init(struct suniv_i2c *i2c_dev)
         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, 0);
         
         /* enable bus */
+        i2c_dev->cntr_bits |= SUNIV_I2C_REG_CONTROL_BUS_EN;
         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
-                        SUNIV_I2C_REG_CONTROL_BUS_EN |
-                        SUNIV_I2C_REG_CONTROL_M_STP);
+                        i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STP);
 }
 
 static void suniv_i2c_send_start(struct suniv_i2c *i2c_dev,
@@ -244,7 +243,7 @@ static void suniv_i2c_send_start(struct suniv_i2c *i2c_dev,
                 i2c_dev->dir = SUNIV_I2C_BUS_DIR_WR;
                 
         /* Set cntr register bits, like enable intr, etc. */
-        i2c_dev->cntr_bits = SUNIV_I2C_REG_CONTROL_A_ACK | SUNIV_I2C_REG_CONTROL_INT_EN;
+        i2c_dev->cntr_bits |= SUNIV_I2C_REG_CONTROL_INT_EN;
         //pr_debug("%s, i2c_dev->cntr_bits : 0x%x\n", __func__, i2c_dev->cntr_bits);
         
         /* If it's a 10 bit address */
@@ -259,7 +258,7 @@ static void suniv_i2c_send_start(struct suniv_i2c *i2c_dev,
         /* Write into cntr register */
         pr_debug("%s, sending start signal\n", __func__);
         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
-                        i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STA);
+                        i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STA | SUNIV_I2C_REG_CONTROL_A_ACK);
 }
 
 static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
@@ -273,8 +272,7 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
 {
         u32                                             status_stat;
         struct suniv_i2c           *i2c_dev = dev_id;
-
-		spin_lock(&i2c_dev->lock);
+	spin_lock(&i2c_dev->lock);
         /* If the INT_FLAG was set */
         while (suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.cntr) &
                SUNIV_I2C_REG_CONTROL_INT_FLAG) {
@@ -371,9 +369,8 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                                         i2c_dev->byte_left--;
                                         i2c_dev->byte_pos++;
                                 } else {
-                                        pr_debug("%s, make a dummy read\n", __func__);
-                                        suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.data);
-                                        suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, i2c_dev->cntr_bits);
+                                        pr_debug("%s, make a dummy read :0x%02x\n", __func__, suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.data));
+                                        suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_A_ACK);
                                         i2c_dev->dummy_read = 0;
                                 }
                         }
@@ -389,7 +386,7 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                                         i2c_dev->cntr_bits |
                                         SUNIV_I2C_REG_CONTROL_M_STP);
 						
-						complete(&i2c_dev->complete);
+			complete(&i2c_dev->complete);
                         break;
                         
                 /* Non device responsed */
@@ -409,7 +406,7 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                                         i2c_dev->cntr_bits |
                                         SUNIV_I2C_REG_CONTROL_M_STP);
 						
-						complete(&i2c_dev->complete);
+			complete(&i2c_dev->complete);
                         break;
                         
                 default:
@@ -417,11 +414,12 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                                         i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STP);
                         suniv_i2c_hw_init(i2c_dev);
                         i2c_recover_bus(&i2c_dev->adapter);
+                        complete(&i2c_dev->complete);
                         break;
                 }
                 
         }
-		spin_unlock(&i2c_dev->lock);
+	spin_unlock(&i2c_dev->lock);
 
         return IRQ_HANDLED;
 }
@@ -434,7 +432,7 @@ static int suniv_i2c_do_msgs(struct suniv_i2c *i2c_dev)
         struct i2c_msg          *msgs = i2c_dev->msgs;
         
         i2c_dev->rc = 0;
-        
+
         for (i = 0; i < num; i++) {
                 pr_debug("%s, sending msg : %d", __func__, i);
 
@@ -494,8 +492,7 @@ static int suniv_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int nu
         
         /* i2c_dev->cntr_bits = suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.cntr); */
         pr_debug("%s, i2c_dev->cntr_bits : 0x%x\n", __func__, i2c_dev->cntr_bits);
-        suniv_i2c_hw_init(i2c_dev);
-        
+        suniv_i2c_hw_init(i2c_dev); 
         /* do single i2c msg whatever read or write */
         if (num == 1)
                 rc = true;
@@ -622,11 +619,10 @@ static int suniv_i2c_probe(struct platform_device *pdev)
                 dev_err(&pdev->dev, "can't assert the device from device!\n");
                 return rc;
         };
-		
+	
         /* A reset is inneed */
         pr_debug("%s: reset the i2c controller\n", __func__);
-        reset_control_reset(i2c_dev->rstc);
-		
+        reset_control_reset(i2c_dev->rstc);			
         /* Get configs from device tree */
 		/*
         rc = suniv_i2c_of_config(i2c_dev, &pdev->dev);
@@ -638,7 +634,6 @@ static int suniv_i2c_probe(struct platform_device *pdev)
         
         /* I2C bus hardware init */
         suniv_i2c_hw_init(i2c_dev);
-        
         
         /* request threaded irq */
         rc = devm_request_threaded_irq(&pdev->dev, i2c_dev->irq,
@@ -735,7 +730,7 @@ static struct platform_driver suniv_i2c_driver = {
         .driver = {
                 .name = "suniv_i2c",
                 .of_match_table = of_match_ptr(suniv_i2c_of_match_table),
-                .pm = &suniv_i2c_pm_ops,
+                //.pm = &suniv_i2c_pm_ops,
         },
 };
 
