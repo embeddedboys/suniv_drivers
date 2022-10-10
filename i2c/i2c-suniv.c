@@ -56,8 +56,8 @@
 #define SUNIV_I2C_BUS_STATUS_MASTER_DATA_SEND_NOACK     0x30    /* Data sent in master mode, ACK not received */
 #define SUNIV_I2C_BUS_STATUS_ADDR_RD_ACK                0x40    /* Address + RD sent, ACK received */
 #define SUNIV_I2C_BUS_STATUS_ADDR_RD_NOACK              0x48    /* Address + RD sent, ACK not received */
-#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_ACK       0x50    /* Data received in master mode, ACK received */
-#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_NOACK     0x58    /* Data received in master mode, ACK not received */
+#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_ACK       0x50    /* Data received in master mode, ACK transmitted */
+#define SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_NOACK     0x58    /* Data received in master mode, not ACK transmitted */
 #define SUNIV_I2C_BUS_STATUS_SEC_ADDR_WR_ACK            0xd0
 
 /* Suniv I2C message direction */
@@ -258,7 +258,7 @@ static void suniv_i2c_send_start(struct suniv_i2c *i2c_dev,
         /* Write into cntr register */
         pr_debug("%s, sending start signal\n", __func__);
         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
-                        i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STA | SUNIV_I2C_REG_CONTROL_A_ACK);
+                        i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_M_STA);
 }
 
 static irqreturn_t suniv_i2c_isr(int irq, void *dev_id)
@@ -343,24 +343,17 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                         pr_debug("%s, 0x%02x : SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_ACK", __func__,
                                  SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_ACK);
                         /* copy received byte in register into i2c msg */
-                        if (i2c_dev->byte_left == 0) {
-                                pr_debug("%s, sending a stop signal\n", __func__);
-                                
-                                //i2c_dev->cntr_bits &= ~SUNIV_I2C_REG_CONTROL_INT_EN;
-                                suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
-                                                i2c_dev->cntr_bits |
-                                                SUNIV_I2C_REG_CONTROL_M_STP);
-                                                
-                                i2c_dev->rc++;
-                                complete(&i2c_dev->complete);
+                        if (!i2c_dev->dummy_read) {
+                                if (i2c_dev->byte_left == 0) {
+                                        pr_debug("%s, sending a stop signal\n", __func__);
 
-                        } else {
-                                /* When the first DATA_RECV_ACK interrupt occured, if we
-                                 * read the data register then we got a "ADDR_READ" value
-                                 * just sent, so we need a dummy read at the first read time.
-                                 */
-                                if (!i2c_dev->dummy_read) {
-                                
+                                        //i2c_dev->cntr_bits &= ~SUNIV_I2C_REG_CONTROL_INT_EN;
+                                        suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
+                                                        i2c_dev->cntr_bits |
+                                                        SUNIV_I2C_REG_CONTROL_M_STP);
+                                        i2c_dev->rc++;
+                                        complete(&i2c_dev->complete);
+                                } else {
                                         i2c_dev->msg->buf[i2c_dev->byte_pos] = suniv_i2c_read(i2c_dev,
                                                                                                 i2c_dev->reg_offsets.data);
                                         pr_debug("%s, read 0x%02x from slave\n", __func__,
@@ -368,16 +361,16 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                                         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, i2c_dev->cntr_bits);
                                         i2c_dev->byte_left--;
                                         i2c_dev->byte_pos++;
-                                } else {
-                                        pr_debug("%s, make a dummy read :0x%02x\n", __func__, suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.data));
-                                        suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_A_ACK);
-                                        i2c_dev->dummy_read = 0;
                                 }
+                        } else {
+                                pr_debug("%s, make a dummy read :0x%02x\n", __func__, suniv_i2c_read(i2c_dev, i2c_dev->reg_offsets.data));
+                                suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr, i2c_dev->cntr_bits | SUNIV_I2C_REG_CONTROL_A_ACK);
+                                i2c_dev->dummy_read = 0;
                         }
                         
                         break;
                         
-                /* Non device responsed in read mode */
+                /* Data byte received in master mode, not ACK transmitted */
                 case SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_NOACK: /* 0x58 */
                         pr_debug("%s, 0x%02x : SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_NOACK", __func__,
                                  SUNIV_I2C_BUS_STATUS_MASTER_DATA_RECV_NOACK);
@@ -385,7 +378,7 @@ static irqreturn_t suniv_i2c_isr_thread_fn(int irq, void *dev_id)
                         suniv_i2c_write(i2c_dev, i2c_dev->reg_offsets.cntr,
                                         i2c_dev->cntr_bits |
                                         SUNIV_I2C_REG_CONTROL_M_STP);
-						
+                        i2c_dev->rc++;
 			complete(&i2c_dev->complete);
                         break;
                         
@@ -594,7 +587,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
         i2c_dev->adapter.nr          = pdev->id;
         i2c_dev->adapter.dev.of_node = pdev->dev.of_node;
         snprintf(i2c_dev->adapter.name, sizeof(i2c_dev->adapter.name),
-				SUNIV_CONTLR_NAME " adapter%d", i2c_dev->adapter.nr);
+				SUNIV_CONTLR_NAME " bus%d", i2c_dev->adapter.nr);
                 
         /* set privte data */
         pr_debug("%s: set privte data\n", __func__);
