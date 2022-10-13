@@ -27,13 +27,22 @@ struct pcf8574{
     struct gpio_chip gc;
 };
 
+static inline struct pcf8574* to_pcf8574(struct gpio_chip *chip)
+{
+    return container_of(chip, struct pcf8574, gc);
+}
+
 static inline int pcf8574_write_byte(struct gpio_chip *gc, u8 byte)
 {
     int rc;
-    const char buf[1] = { byte };
+    char buf[1];
+    struct pcf8574 *pcf8574_dev = to_pcf8574(gc);
     struct i2c_client *client = to_i2c_client(gc->parent);
 
+    mutex_lock(&pcf8574_dev->lock);
+    buf[0] = byte;
     rc = i2c_master_send(client, buf, 1);
+    mutex_unlock(&pcf8574_dev->lock);
 
     return rc;
 }
@@ -42,9 +51,12 @@ static inline u8 pcf8574_read_byte(struct gpio_chip *gc)
 {
     int rc;
     u8 buf[1];
+    struct pcf8574 *pcf8574_dev = to_pcf8574(gc);
     struct i2c_client *client = to_i2c_client(gc->parent);
 
+    mutex_lock(&pcf8574_dev->lock);
     rc = i2c_master_recv(client, buf, 1);
+    mutex_unlock(&pcf8574_dev->lock);
 
     return buf[0];
 }
@@ -59,22 +71,6 @@ static int pcf8574_of_config(struct pcf8574 *pcf8574_dev)
 
     rc = of_property_read_u32(client->dev.of_node, "ngpios", &pcf8574_dev->ngpio);
     pcf8574_dev->gc.ngpio = pcf8574_dev->ngpio;
-
-    return 0;
-}
-
-static int pcf8574_direction_output(struct gpio_chip *gc,
-                                      unsigned offset, int value)
-{
-    printk("set pin %d as output %s\n", offset, value ? "high" : "low");
-
-    return 0;
-}
-
-static int pcf8574_direction_input(struct gpio_chip *chip,
-                                     unsigned offset)
-{
-    printk("set pin %d as input\n", offset);
 
     return 0;
 }
@@ -100,6 +96,22 @@ static void pcf8574_set_value(struct gpio_chip *chip,
 
     printk("%s, val: 0x%02x\n", __func__, reg);
     pcf8574_write_byte(chip, reg);
+}
+
+static int pcf8574_direction_output(struct gpio_chip *gc,
+                                      unsigned offset, int value)
+{
+    printk("set pin %d as output %s\n", offset, value ? "high" : "low");
+    pcf8574_set_value(gc, offset, value);
+    return 0;
+}
+
+static int pcf8574_direction_input(struct gpio_chip *chip,
+                                     unsigned offset)
+{
+    printk("set pin %d as input\n", offset);
+
+    return 0;
 }
 
 static int pcf8574_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -136,6 +148,9 @@ static int pcf8574_probe(struct i2c_client *client, const struct i2c_device_id *
 
     /* Setting base, ngpio of gpio_chip */
     pcf8574_of_config(pcf8574_dev);
+
+    /* Initialze locks */
+    mutex_init(&pcf8574_dev->lock);
 
     /* TODO: chip irq support */
 
@@ -176,5 +191,5 @@ static struct i2c_driver pcf8574_driver = {
 module_i2c_driver(pcf8574_driver);
 
 MODULE_AUTHOR("IotaHydrae <writeforever@foxmail.com>");
-MODULE_DESCRIPTION("A virtual gpio_chip driver example");
+MODULE_DESCRIPTION("A simple gpio_chip driver for pcf8574");
 MODULE_LICENSE("GPL");
