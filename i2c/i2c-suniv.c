@@ -542,13 +542,6 @@ static int suniv_i2c_probe(struct platform_device *pdev)
         
         pr_debug("%s, i2c reg base: %p\n", __func__, i2c_dev->base);
         
-        i2c_dev->irq = platform_get_irq(pdev, 0);
-        if (i2c_dev->irq < 0) {
-                printk("%s, can't get irq\n", __func__);
-                return i2c_dev->irq;
-        }
-        pr_debug("%s: Got irq number %d from device\n", __func__, i2c_dev->irq);
-        
         /* init ops */
         init_completion(&i2c_dev->complete);
         spin_lock_init(&i2c_dev->lock);
@@ -628,6 +621,22 @@ static int suniv_i2c_probe(struct platform_device *pdev)
         /* I2C bus hardware init */
         suniv_i2c_hw_init(i2c_dev);
         
+        /* Add this adapter to system */
+        pr_debug("%s: adding adapter to system \n", __func__);
+        rc = i2c_add_numbered_adapter(&i2c_dev->adapter);
+        if (rc != 0) {
+                dev_err(&pdev->dev, "failed to add adapter\n");
+                i2c_del_adapter(&i2c_dev->adapter);
+        }
+
+        i2c_dev->irq = platform_get_irq(pdev, 0);
+        if (i2c_dev->irq < 0) {
+                printk("%s, can't get irq\n", __func__);
+                return i2c_dev->irq;
+        }
+        pr_debug("%s: Got irq number %d from device\n", __func__, i2c_dev->irq);
+
+
         /* request threaded irq */
         rc = devm_request_threaded_irq(&pdev->dev, i2c_dev->irq,
                                        suniv_i2c_isr, suniv_i2c_isr_thread_fn,
@@ -638,15 +647,7 @@ static int suniv_i2c_probe(struct platform_device *pdev)
                         "suniv: can't register intr handler irq : %d\n", i2c_dev->irq);
                 return rc;
         }
-        
-        /* Add this adapter to system */
-        pr_debug("%s: adding adapter to system \n", __func__);
-        rc = i2c_add_numbered_adapter(&i2c_dev->adapter);
-        if (rc != 0) {
-                dev_err(&pdev->dev, "failed to add adapter\n");
-                i2c_del_adapter(&i2c_dev->adapter);
-        }
-        
+
         /* Create a sysfs interface */
         pr_debug("%s: createing sysfs interface \n", __func__);
         rc = suniv_i2c_create_sysfs(&i2c_dev->adapter.dev);
