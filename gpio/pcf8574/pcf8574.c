@@ -19,7 +19,11 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
+#define DRV_NAME "pcf8574"
+
 struct pcf8574{
+    u8 irq_pin;
+
     u32 base;
     u32 ngpio;
 
@@ -80,7 +84,7 @@ static int pcf8574_get_value(struct gpio_chip *chip, unsigned offset)
     u8 reg = pcf8574_read_byte(chip);
     printk("%s, val: 0x%02x\n", __func__, reg);
 
-    return reg & (1 << offset);
+    return reg & BIT(offset);
 }
 
 static void pcf8574_set_value(struct gpio_chip *chip,
@@ -90,9 +94,9 @@ static void pcf8574_set_value(struct gpio_chip *chip,
     printk("set pin %d as %d\n", offset, value);
 
     if (value)
-        reg |= (1 << offset);
+        reg |= BIT(offset);
     else
-        reg &= ~(1 << offset);
+        reg &= ~BIT(offset);
 
     printk("%s, val: 0x%02x\n", __func__, reg);
     pcf8574_write_byte(chip, reg);
@@ -167,13 +171,13 @@ static int pcf8574_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id pcf8547_id_table[] = {
-    { "pcf8574", 0 },
+    { DRV_NAME, 0 },
     { /* KEEP THIS */ },
 };
 MODULE_DEVICE_TABLE(i2c, pcf8547_id_table);
 
 static const struct of_device_id pcf8574_of_match_table[] = {
-    {.compatible = "hamsterbear,pcf8574" },
+    {.compatible = "hamsterbear," DRV_NAME },
     { /* KEEP THIS */ },
 };
 MODULE_DEVICE_TABLE(of, pcf8574_of_match_table);
@@ -182,7 +186,7 @@ static struct i2c_driver pcf8574_driver = {
     .probe  = pcf8574_probe,
     .remove = pcf8574_remove,
     .driver = {
-        .name = "hamsterbear,pcf8574",
+        .name = "hamsterbear," DRV_NAME,
         .of_match_table = of_match_ptr(pcf8574_of_match_table),
     },
     .id_table = pcf8547_id_table,
