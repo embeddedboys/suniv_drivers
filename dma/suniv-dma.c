@@ -87,9 +87,14 @@ enum suniv_dma_busrt_size {
     SUNIV_DMA_BURST_INCR4,
 };
 
+struct suniv_dma_chn_hw {
+
+};
+
 struct suniv_dma_desc {
-    struct virt_dma_desc vdesc;
-    enum dma_transfer_direction dir;
+    struct suniv_dma_chn_hw      chan_hw;
+    struct virt_dma_desc         vdesc;
+    enum dma_transfer_direction  dir;
 };
 
 struct suniv_dma_chan {
@@ -97,6 +102,7 @@ struct suniv_dma_chan {
     bool is_dedicated;
 
     struct virt_dma_chan    vchan; /* current virtual channel servicing */
+    struct suniv_dma_desc   *desc;
     struct dma_slave_config cfg;
 };
 
@@ -130,11 +136,14 @@ static inline struct suniv_dma_chan *to_suniv_dma_chan(struct dma_chan *c)
     return container_of(c, struct suniv_dma_chan, vchan.chan);
 }
 
-static inline struct suniv_dma *to_suniv_dma(struct dma_chan *c)
+static inline struct suniv_dma *to_suniv_dma_by_dc(struct dma_chan *c)
 {
-    struct suniv_dma_chan *sc = to_suniv_dma_chan(c);
+    return container_of(c->device, struct suniv_dma, ddev);
+}
 
-    return container_of(sc, struct suniv_dma, chan[c->chan_id]);
+static inline struct suniv_dma *to_suniv_dma_by_sdc(struct suniv_dma_chan *c)
+{
+    return container_of(c->vchan.chan.device, struct suniv_dma, ddev);
 }
 
 static inline struct suniv_dma_desc *to_suniv_dma_desc(struct virt_dma_desc *vd)
@@ -169,6 +178,24 @@ static irqreturn_t suniv_dma_isr(int irq, void *devid)
     return IRQ_HANDLED;
 }
 
+static void suniv_dma_start(struct suniv_dma_chan *chan)
+{
+    struct suniv_dma *dma_dev = to_suniv_dma_by_sdc(chan);
+    struct virt_dma_desc *vdesc;
+
+    if(!chan->desc) {
+        vdesc = vchan_next_desc(&chan->vchan);
+        if (!vdesc)
+            return;
+
+        chan->desc = to_suniv_dma_desc(vdesc);
+    }
+
+    /* Hardware Configuration */
+
+    printk("%s\n", __func__);
+}
+
 static struct dma_chan *suniv_dma_of_xlate(struct of_phandle_args *dma_spec,
                                            struct of_dma *ofdma)
 {
@@ -201,8 +228,16 @@ static enum dma_status suniv_dma_tx_status(struct dma_chan *chan,
     return 0;
 }
 
-static void suniv_dma_issue_pending(struct dma_chan *chan)
+static void suniv_dma_issue_pending(struct dma_chan *c)
 {
+    struct suniv_dma_chan *chan = to_suniv_dma_chan(c);
+    unsigned long flags;
+
+    spin_lock_irqsave(&chan->vchan.lock, flags);
+    if (vchan_issue_pending(&chan->vchan) && !chan->desc)
+        suniv_dma_start(chan);
+    spin_unlock_irqrestore(&chan->vchan.lock, flags);
+
     printk("%s\n", __func__);
 }
 
@@ -217,6 +252,7 @@ static struct dma_async_tx_descriptor *suniv_dma_prep_dma_memcpy(
     if (!desc)
         return NULL;
 
+    /* Save hardware params */
 
     printk("%s\n", __func__);
     return vchan_tx_prep(&chan->vchan, &desc->vdesc, flags);
