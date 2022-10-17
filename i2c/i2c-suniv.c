@@ -133,7 +133,8 @@ static inline void suniv_i2c_write(struct suniv_i2c *i2c_dev, u32 reg, u32 val)
 
 static inline void suniv_i2c_soft_reset(struct suniv_i2c *i2c_dev)
 {
-	writel(SUNIV_I2C_REG_SRST_SOFT_RESET, i2c_dev->base + i2c_dev->reg_offsets.srst);
+        suniv_i2c_write(i2c_dev, i2c_dev->base + i2c_dev->reg_offsets.srst,
+                        SUNIV_I2C_REG_SRST_SOFT_RESET);
 }
                                    	
 
