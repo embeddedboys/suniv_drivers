@@ -42,6 +42,8 @@
 #define SUNIV_DMA_MAX_CHANNELS  (SUNIV_DMA_NDMA_NR_CHANNELS + \
                                  SUNIV_DMA_DDMA_NR_CHANNELS)
 
+#define SUNIV_DMA_MAX_BURST         4
+
 /* Suniv DMA Register offsets */
 #define SUNIV_DMA_NDMA_BASE_OFFSET      0x100
 #define SUNIV_DMA_DDMA_BASE_OFFSET      0x300
@@ -59,6 +61,7 @@
 #define SUNIV_DMA_DEV_TO_DEV        0x03
 
 struct suniv_dma_chan {
+    u32 id;
     bool is_dedicated;
 
     struct virt_dma_chan    vchan; /* current virtual channel servicing */
@@ -78,6 +81,7 @@ struct suniv_dma {
     struct reset_control    *rstc;
 
     struct suniv_dma_chan   chan[SUNIV_DMA_MAX_CHANNELS];
+    u32                     nr_channels;
 };
 
 static irqreturn_t suniv_dma_isr(int irq, void *devid)
@@ -127,9 +131,10 @@ static struct dma_async_tx_descriptor *suniv_dma_prep_dma_memcpy(
 
 static int suniv_dma_probe(struct platform_device *pdev)
 {
-    int rc;
+    int i, rc;
     struct suniv_dma *dma_dev;
     struct dma_device *dd;
+    struct suniv_dma_chan *chan;
 
     printk("%s\n", __func__);
 
@@ -167,16 +172,33 @@ static int suniv_dma_probe(struct platform_device *pdev)
 
     /* set private data */
     platform_set_drvdata(pdev, dma_dev);
-    dd->dev = &pdev->dev;
 
-    //dma_cap_set(DMA_MEMCPY, dd->cap_mask);
+    dma_cap_set(DMA_MEMCPY, dd->cap_mask);
     dma_cap_set(DMA_SLAVE, dd->cap_mask);
     dd->device_alloc_chan_resources = suniv_dma_alloc_chan_resources;
     dd->device_free_chan_resources  = suniv_dma_free_chan_reosuces;
     dd->device_terminate_all        = suniv_dma_terminate_all;
     dd->device_tx_status            = suniv_dma_tx_status;
     dd->device_issue_pending        = suniv_dma_issue_pending;
-    //dd->device_prep_dma_memcpy      = suniv_dma_prep_dma_memcpy;
+    dd->device_prep_dma_memcpy      = suniv_dma_prep_dma_memcpy;
+
+    dd->src_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE) |
+                          BIT(DMA_SLAVE_BUSWIDTH_2_BYTES) |
+                          BIT(DMA_SLAVE_BUSWIDTH_4_BYTES);
+    dd->dst_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE) |
+                          BIT(DMA_SLAVE_BUSWIDTH_2_BYTES) |
+                          BIT(DMA_SLAVE_BUSWIDTH_4_BYTES);
+    dd->directions = BIT(DMA_MEM_TO_MEM) | BIT(DMA_MEM_TO_DEV) |
+                     BIT(DMA_DEV_TO_MEM) | BIT(DMA_DEV_TO_DEV);
+    dd->max_burst = SUNIV_DMA_MAX_BURST;
+    dd->dev = &pdev->dev;
+    INIT_LIST_HEAD(&dd->channels);
+
+    for(i=0; i < SUNIV_DMA_MAX_CHANNELS; i++) {
+        chan = &dma_dev->chan[i];
+        chan->id = i;
+        vchan_init(&chan->vchan, dd);
+    }
 
     rc = dma_async_device_register(dd);
     if (rc)
@@ -192,7 +214,7 @@ static int suniv_dma_probe(struct platform_device *pdev)
 
     rc = devm_request_irq(&pdev->dev, dma_dev->irq,
                           suniv_dma_isr, 0,
-                          DRV_NAME "device", dma_dev);
+                          DRV_NAME " device", dma_dev);
     if (rc) {
         dev_err(&pdev->dev, "request irq failed with err %d\n", rc);
         return rc;
