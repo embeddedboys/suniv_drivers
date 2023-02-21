@@ -21,5 +21,6 @@ rmmod: $(MODULE_NAME.ko)
 	sudo rmmod $(MODULE_NAME)
 	./klogcat.sh
 
-CFLAGS_$(MODULE_NAME).o := -DDEBUG
+#CFLAGS_$(MODULE_NAME).o := -DDEBUG
+CFLAGS_$(MODULE_NAME).o := -DCONFIG_SUNIV_I2C_ISR_THREADED=0
 obj-m+=$(MODULE_NAME).o
