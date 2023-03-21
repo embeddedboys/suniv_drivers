@@ -5,10 +5,10 @@
 # users kernel dir
 KERN_DIR:=/home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
 
-MODULE_NAME:=i2c-suniv
+MODULE_NAME:=spi-suniv
 
 all:
-	make -C $(KERN_DIR) M=`pwd` modules 
+	make -C $(KERN_DIR) M=`pwd` modules
 
 clean:
 	make -C $(KERN_DIR) M=`pwd` modules clean
@@ -21,6 +21,5 @@ rmmod: $(MODULE_NAME.ko)
 	sudo rmmod $(MODULE_NAME)
 	./klogcat.sh
 
-#CFLAGS_$(MODULE_NAME).o := -DDEBUG
-CFLAGS_$(MODULE_NAME).o := -DCONFIG_SUNIV_I2C_ISR_THREADED=0
+CFLAGS_$(MODULE_NAME).o := -DDEBUG
 obj-m+=$(MODULE_NAME).o

@@ -1,11 +1,11 @@
 
 # local kernel build dir
-# KERN_DIR:=/lib/modules/$(shell uname -r)/build
+#KERN_DIR:=/lib/modules/$(shell uname -r)/build
 
 # users kernel dir
 KERN_DIR:=/home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
 
-MODULE_NAME:=i2c-suniv
+MODULE_NAME:=test-misc
 
 all:
 	make -C $(KERN_DIR) M=`pwd` modules 
@@ -22,5 +22,4 @@ rmmod: $(MODULE_NAME.ko)
 	./klogcat.sh
 
 #CFLAGS_$(MODULE_NAME).o := -DDEBUG
-CFLAGS_$(MODULE_NAME).o := -DCONFIG_SUNIV_I2C_ISR_THREADED=0
 obj-m+=$(MODULE_NAME).o

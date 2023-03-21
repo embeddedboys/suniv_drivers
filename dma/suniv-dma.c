@@ -55,10 +55,10 @@
 
 #define SUNIV_DMA_INT_STA_REG       0x04
 /* Bits of Interrupt status register */
-#define SUNIV_DDMA_FULL_TRANS_INT_PENDING   BIT(16+2*n+1)
-#define SUNIV_DDMA_HALF_TRANS_INT_PENDING   BIT(16+2*n)
-#define SUNIV_NDMA_FULL_TRANS_INT_PENDING   BIT(2*n+1)
-#define SUNIV_NDMA_HALF_TRANS_INT_PENDING   BIT(2*n)
+#define SUNIV_DDMA_FULL_TRANS_INT_PENDING(n)   BIT(16+2*n+1)
+#define SUNIV_DDMA_HALF_TRANS_INT_PENDING(n)   BIT(16+2*n)
+#define SUNIV_NDMA_FULL_TRANS_INT_PENDING(n)   BIT(2*n+1)
+#define SUNIV_NDMA_HALF_TRANS_INT_PENDING(n)   BIT(2*n)
 
 #define SUNIV_DMA_PTY_CFG_REG       0x08
 /* Bits of Priority configure register */
@@ -245,6 +245,7 @@ static void suniv_dma_set_interurpt(struct suniv_dma *dma_dev,
     u32 reg;
 	unsigned long flags;
 
+    printk("%s\n", __func__);
 	spin_lock_irqsave(&dma_dev->lock, flags);
 
     reg = suniv_dma_read(dma_dev, SUNIV_DMA_INT_CTRL_REG);
@@ -255,11 +256,8 @@ static void suniv_dma_set_interurpt(struct suniv_dma *dma_dev,
         reg |= SUNIV_NDMA_FULL_TRANS_INT_EN(chan->id);
     else if (!end && chan->is_dedicated)
         reg &= ~SUNIV_DDMA_FULL_TRANS_INT_EN(chan->id);
-    else if (!end && !chan->is_dedicated)
+    else // (!end && !chan->is_dedicated)
         reg &= ~SUNIV_NDMA_FULL_TRANS_INT_EN(chan->id);
-    else {
-
-    }
 
     suniv_dma_write(dma_dev, SUNIV_DMA_INT_CTRL_REG, reg);
 
@@ -270,18 +268,31 @@ static irqreturn_t suniv_dma_isr(int irq, void *devid)
 {
     struct suniv_dma *dma_dev = (struct suniv_dma *)devid;
     struct suniv_dma_chan *chan;
-    int i, j;
-    u32 remain_bytes;
-    u32 irq_pending = suniv_dma_read(dma_dev, SUNIV_DMA_INT_STA_REG);
+    int bit;
+    //u32 remain_bytes;
+    unsigned long irq_pending = suniv_dma_read(dma_dev, SUNIV_DMA_INT_STA_REG);
 
-    printk("%s\n", __func__);
+    printk("%s, irq_pending: 0x%lx\n", __func__, irq_pending);
     for_each_set_bit(bit, &irq_pending, 32) {
-        chan = dma_dev->chan[bit >> 1];
+        chan = &dma_dev->chan[bit >> 1];
 
         if (bit & 1) {
             /* TODO: Disable chann IRQ */
+            spin_lock(&dma_dev->lock);
+            suniv_dma_set_interurpt(dma_dev, chan, 0);
+
 
             /* TODO: Clear chann Interrupt Pending */
+         	suniv_dma_update(dma_dev, SUNIV_DMA_INT_STA_REG, 
+            				chan->is_dedicated?
+            				SUNIV_DDMA_FULL_TRANS_INT_PENDING(chan->id): 
+            				SUNIV_NDMA_FULL_TRANS_INT_PENDING(chan->id), 
+                            chan->is_dedicated?
+            				SUNIV_DDMA_FULL_TRANS_INT_PENDING(chan->id): 
+            				SUNIV_NDMA_FULL_TRANS_INT_PENDING(chan->id));
+
+            
+            spin_unlock(&dma_dev->lock);
         }
     }
     
@@ -330,9 +341,6 @@ static void suniv_dma_start(struct suniv_dma_chan *chan)
     /* Hardware Configuration */
     suniv_dma_set_interurpt(dma_dev, chan, 1);
     suniv_dma_set_chn_config(chan, chan->desc);
-
-
-    printk("%s\n", __func__);
 }
 
 static struct dma_chan *suniv_dma_of_xlate(struct of_phandle_args *dma_spec,
@@ -372,12 +380,11 @@ static void suniv_dma_issue_pending(struct dma_chan *c)
     struct suniv_dma_chan *chan = to_suniv_dma_chan(c);
     unsigned long flags;
 
+    printk("%s\n", __func__);
     spin_lock_irqsave(&chan->vchan.lock, flags);
     if (vchan_issue_pending(&chan->vchan) && !chan->desc)
         suniv_dma_start(chan);
     spin_unlock_irqrestore(&chan->vchan.lock, flags);
-
-    printk("%s\n", __func__);
 }
 
 static struct dma_async_tx_descriptor *suniv_dma_prep_dma_memcpy(
@@ -429,7 +436,6 @@ static struct dma_async_tx_descriptor *suniv_dma_prep_dma_memcpy(
     /* Common configuration */
     hw->cfg |= SUNIV_DMA_LOADING;
 
-    printk("%s\n", __func__);
     return vchan_tx_prep(&chan->vchan, &desc->vdesc, flags);
 }
 
